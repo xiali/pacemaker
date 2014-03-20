@@ -1748,6 +1748,18 @@ class Reattach(CTSTest):
             self.CM.rsh(node, "crm_attribute -V -D -n is-managed-default")
             return self.failure("Couldn't shut down the cluster")
 
+        # Ignore actions for STONITH resources
+        ignore = []
+        (rc, lines) = self.CM.rsh(node, "crm_resource -c", None)
+        for line in lines:
+            if re.search("^Resource", line):
+                r = AuditResource(self.CM, line)
+                if r.rclass == "stonith":
+                    self.CM.debug("Ignoring stop actions for %s" % r.id)
+                    ignore.append(self.CM["Pat:RscOpOK"] % (r.id, "stop_0"))
+                    self.CM.debug("Ignoring start actions for %s" % r.id)
+                    ignore.append(self.CM["Pat:RscOpOK"] % (r.id, "start_0"))
+
         self.CM.debug("Bringing the cluster back up")
         ret = self.startall(None)
         time.sleep(5) # allow ping to update the CIB
@@ -1756,7 +1768,7 @@ class Reattach(CTSTest):
             self.CM.rsh(node, "crm_attribute -V -D -n is-managed-default")
             return self.failure("Couldn't restart the cluster")
 
-        if self.local_badnews("ResourceActivity:", watch):
+        if self.local_badnews("ResourceActivity:", watch, ignore):
             self.CM.debug("Re-enable resource management")
             self.CM.rsh(node, "crm_attribute -V -D -n is-managed-default")
             return self.failure("Resources stopped or started during cluster restart")
@@ -1775,20 +1787,6 @@ class Reattach(CTSTest):
             return self.failure("Resource management not enabled")
 
         self.CM.cluster_stable()
-
-        # Ignore actions for STONITH resources
-        ignore = []
-        (rc, lines) = self.CM.rsh(node, "crm_resource -c", None)
-        for line in lines:
-            if re.search("^Resource", line):
-                r = AuditResource(self.CM, line)
-                if r.rclass == "stonith":
-
-                    self.CM.debug("Ignoring start actions for %s" % r.id)
-                    ignore.append(self.CM["Pat:RscOpOK"] % (r.id, "start_0"))
-
-        if self.local_badnews("ResourceActivity:", watch, ignore):
-            return self.failure("Resources stopped or started after resource management was re-enabled")
 
         return ret
 
@@ -2544,7 +2542,7 @@ class RemoteLXC(CTSTest):
 
         pats = [ ]
         # if the test failed, attempt to clean up the cib and libvirt environment
-        # as best as possible 
+        # as best as possible
         if self.failed == 1:
             # restore libvirt and cib
             self.CM.rsh(node, "/usr/share/pacemaker/tests/cts/lxc_autogen.sh -R &>/dev/null")
@@ -2600,8 +2598,8 @@ class RemoteLXC(CTSTest):
                  """LogActions: Recover lxc-ms""",
                  """LogActions: Recover container""",
                  # The orphaned lxc-ms resource causes an expected transition error
-                 # that is a result of the pengine not having knowledge that the 
-                 # ms resource used to be a clone.  As a result it looks like that 
+                 # that is a result of the pengine not having knowledge that the
+                 # ms resource used to be a clone.  As a result it looks like that
                  # resource is running in multiple locations when it shouldn't... But in
                  # this instance we know why this error is occurring and that it is expected.
                  """Calculated Transition .* /var/lib/pacemaker/pengine/pe-error""",
